@@ -1,0 +1,264 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>المعلم الهولوغرامي الذكي (Three.js)</title>
+    
+    <!-- مكتبة Three.js الأساسية لتحويل HTML إلى 3D -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+
+    <!-- 🟢 دمج كود CSS (التصميم) -->
+    <style>
+        body {
+            background-color: #0d1117; 
+            color: #00ffff; 
+            font-family: 'Arial', sans-serif;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            min-height: 100vh;
+            margin: 0;
+            text-align: right;
+        }
+
+        #hologram-container {
+            width: 300px;
+            height: 300px;
+            border: 3px solid #00ffff;
+            border-radius: 5px;
+            box-shadow: 0 0 20px #00ffff, inset 0 0 10px #00ffff; 
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            margin-bottom: 20px;
+            background-color: rgba(0, 255, 255, 0.05); 
+            overflow: hidden; 
+        }
+
+        #chat-interface {
+            width: 80%;
+            max-width: 600px;
+            padding: 20px;
+            background-color: #161b22;
+            border: 1px solid #00ffff;
+            border-radius: 8px;
+        }
+
+        #response-display {
+            min-height: 80px;
+            border-bottom: 1px solid rgba(0, 255, 255, 0.3);
+            padding-bottom: 10px;
+            margin-bottom: 15px;
+            font-size: 1.1em;
+        }
+
+        #input-area {
+            display: flex;
+            gap: 10px;
+        }
+
+        #user-input {
+            flex-grow: 1;
+            padding: 10px;
+            border: 2px solid #00ffff;
+            background-color: #0d1117;
+            color: #00ffff;
+            border-radius: 4px;
+        }
+
+        button {
+            padding: 10px 15px;
+            background-color: #00ffff;
+            color: #0d1117;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-weight: bold;
+            transition: background-color 0.3s;
+        }
+
+        button:hover {
+            background-color: #00e0e0;
+        }
+
+        #status-message {
+            text-align: center;
+            font-size: 0.9em;
+            color: #ffcc00; 
+        }
+    </style>
+</head>
+<body>
+    <div id="hologram-container">
+        <!-- سيتم إنشاء عنصر <canvas> بواسطة Three.js هنا -->
+    </div>
+
+    <div id="chat-interface">
+        <div id="response-display">
+            <p>أهلاً بك! أنا معلمك الهولوغرامي، تفاعلي معي لطرح سؤالك.</p>
+        </div>
+        
+        <div id="input-area">
+            <input type="text" id="user-input" placeholder="اكتب سؤالك هنا...">
+            <button id="send-btn">إرسال</button>
+            <button id="mic-btn">🎙️</button> 
+        </div>
+        <p id="status-message"></p>
+    </div>
+
+    <!-- 🟢 دمج كود JavaScript (المنطق والتفاعل و Three.js) -->
+    <script>
+        // =======================================================
+        // 1. إعدادات الربط بالـ API السحابي (Hugging Face)
+        // =======================================================
+        const LLAMA_API_URL = 'https://huggingface.co/spaces/Monter1999/Teacherai'; 
+        
+        // =======================================================
+        // 2. منطق Three.js - العرض والحركة
+        // =======================================================
+        let scene, camera, renderer, avatar; 
+        let rotationSpeed = 0.005; 
+
+        function initThreeJS() {
+            const container = document.getElementById('hologram-container');
+            const aspectRatio = container.clientWidth / container.clientHeight;
+            
+            scene = new THREE.Scene();
+            camera = new THREE.PerspectiveCamera(75, aspectRatio, 0.1, 1000);
+            camera.position.z = 2; 
+
+            renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+            renderer.setSize(container.clientWidth, container.clientHeight);
+            container.appendChild(renderer.domElement);
+
+            const geometry = new THREE.BoxGeometry(1, 1, 1);
+            const material = new THREE.MeshBasicMaterial({
+                color: 0x00ffff, 
+                wireframe: true, 
+                transparent: true,
+                opacity: 0.8 
+            });
+            
+            avatar = new THREE.Mesh(geometry, material);
+            scene.add(avatar);
+
+            animate();
+        }
+
+        function animate() {
+            requestAnimationFrame(animate);
+            
+            if (avatar) {
+                avatar.rotation.x += rotationSpeed;
+                avatar.rotation.y += rotationSpeed;
+            }
+
+            renderer.render(scene, camera);
+        }
+        
+        function animateAvatar(state) {
+            switch (state) {
+                case 'thinking':
+                    rotationSpeed = 0.05; 
+                    break;
+                case 'talking':
+                    rotationSpeed = 0.01; 
+                    break;
+                case 'listening':
+                    rotationSpeed = 0.005; 
+                    break;
+            }
+        }
+
+        window.addEventListener('load', initThreeJS);
+
+        // =======================================================
+        // 3. منطق التفاعل والذكاء الاصطناعي (مُحدث لاستخدام mode: 'no-cors')
+        // =======================================================
+        document.getElementById('send-btn').addEventListener('click', handleUserInput);
+        document.getElementById('mic-btn').addEventListener('click', handleVoiceInput);
+
+        async function sendQuestionToAI(question) {
+            if (!question.trim()) return;
+
+            const display = document.getElementById('response-display');
+            const status = document.getElementById('status-message');
+            const userInput = document.getElementById('user-input');
+
+            display.innerHTML = `<p>المعلم الهولوغرامي يفكر ويستعد للإجابة...</p>`;
+            status.textContent = 'يتم معالجة السؤال سحابيًا...';
+            animateAvatar('thinking');
+
+            userInput.disabled = true;
+            document.getElementById('send-btn').disabled = true;
+
+            try {
+                const response = await fetch(LLAMA_API_URL, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    // 💡 التعديل الإضافي: محاولة تجنب مشاكل CORS
+                    mode: 'cors', // يمكن تجربتها أولاً، ثم إزالتها إذا فشلت
+                    body: JSON.stringify({ data: [question] })
+                });
+
+                if (!response.ok) {
+                    throw new Error(`خطأ في الاتصال بالخادم (الحالة: ${response.status}).`);
+                }
+
+                const data = await response.json();
+                
+                if (data && data.data && data.data.length > 0) {
+                    const aiResponseText = data.data[0].trim();
+                    
+                    display.innerHTML = `<p>${aiResponseText}</p>`;
+                    
+                    readTextAloud(aiResponseText, () => {
+                        animateAvatar('listening');
+                    }); 
+                    animateAvatar('talking');
+                    status.textContent = 'جاهز للتفاعل التالي.';
+
+                } else {
+                     throw new Error('لم يتم استقبال رد صالح من النموذج. تأكد من سجلات Gradio.');
+                }
+                
+            } catch (error) {
+                display.innerHTML = `<p>حدث خطأ: ${error.message}.</p>`;
+                status.textContent = 'فشل الاتصال أو المعالجة. تأكد من أن مساحة Hugging Face تعمل.';
+                animateAvatar('listening');
+            } finally {
+                userInput.disabled = false;
+                document.getElementById('send-btn').disabled = false;
+                userInput.value = '';
+            }
+        }
+
+        function handleUserInput() {
+            const question = document.getElementById('user-input').value;
+            sendQuestionToAI(question);
+        }
+
+        function readTextAloud(text, callback) {
+            if ('speechSynthesis' in window) {
+                const utterance = new SpeechSynthesisUtterance(text);
+                utterance.lang = 'ar-SA'; 
+                
+                utterance.onend = () => {
+                    if (callback) callback();
+                };
+
+                window.speechSynthesis.speak(utterance);
+            } else {
+                console.warn('متصفحك لا يدعم تحويل النص إلى كلام.');
+                if (callback) callback();
+            }
+        }
+
+        function handleVoiceInput() {
+            alert('تفعيل المايكروفون (قيد التطوير): يتطلب دمج Web Speech API.');
+        }
+    </script>
+</body>
+</html>
