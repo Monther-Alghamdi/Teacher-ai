@@ -113,7 +113,8 @@
         // =======================================================
         // 1. إعدادات الربط بالـ API السحابي (Hugging Face)
         // =======================================================
-        const LLAMA_API_URL = 'https://huggingface.co/spaces/Monter1999/Teacherai'; 
+        // الرابط النهائي: Hugging Face Inference API للنموذج Gemma 2B 
+        const LLAMA_API_URL = 'https://monter1999-teacherai.hf.space/v1/models/google/gemma-2b'; 
         
         // =======================================================
         // 2. منطق Three.js - العرض والحركة
@@ -123,14 +124,16 @@
 
         function initThreeJS() {
             const container = document.getElementById('hologram-container');
-            const aspectRatio = container.clientWidth / container.clientHeight;
+            const containerWidth = container.clientWidth;
+            const containerHeight = container.clientHeight;
+            const aspectRatio = containerWidth / containerHeight;
             
             scene = new THREE.Scene();
             camera = new THREE.PerspectiveCamera(75, aspectRatio, 0.1, 1000);
             camera.position.z = 2; 
 
             renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
-            renderer.setSize(container.clientWidth, container.clientHeight);
+            renderer.setSize(containerWidth, containerHeight);
             container.appendChild(renderer.domElement);
 
             const geometry = new THREE.BoxGeometry(1, 1, 1);
@@ -175,7 +178,7 @@
         window.addEventListener('load', initThreeJS);
 
         // =======================================================
-        // 3. منطق التفاعل والذكاء الاصطناعي (مُحدث لاستخدام mode: 'no-cors')
+        // 3. منطق التفاعل والذكاء الاصطناعي
         // =======================================================
         document.getElementById('send-btn').addEventListener('click', handleUserInput);
         document.getElementById('mic-btn').addEventListener('click', handleVoiceInput);
@@ -198,9 +201,15 @@
                 const response = await fetch(LLAMA_API_URL, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    // 💡 التعديل الإضافي: محاولة تجنب مشاكل CORS
-                    mode: 'cors', // يمكن تجربتها أولاً، ثم إزالتها إذا فشلت
-                    body: JSON.stringify({ data: [question] })
+                    
+                    // تنسيق Hugging Face Inference API
+                    body: JSON.stringify({
+                        inputs: question,
+                        parameters: {
+                            max_new_tokens: 100,
+                            temperature: 0.7 
+                        }
+                    })
                 });
 
                 if (!response.ok) {
@@ -209,12 +218,16 @@
 
                 const data = await response.json();
                 
-                if (data && data.data && data.data.length > 0) {
-                    const aiResponseText = data.data[0].trim();
+                // استخراج الرد من تنسيق Hugging Face API
+                if (data && data.length > 0 && data[0].generated_text) {
+                    const aiResponseText = data[0].generated_text.trim();
                     
-                    display.innerHTML = `<p>${aiResponseText}</p>`;
+                    // إزالة التوجيه الأولي الذي قد يظهر في الرد
+                    const cleanedText = aiResponseText.replace(/<|system|>.*?<|user|>.*?<|assistant|>/gs, '').trim();
+
+                    display.innerHTML = `<p>${cleanedText}</p>`;
                     
-                    readTextAloud(aiResponseText, () => {
+                    readTextAloud(cleanedText, () => {
                         animateAvatar('listening');
                     }); 
                     animateAvatar('talking');
@@ -262,3 +275,4 @@
     </script>
 </body>
 </html>
+
