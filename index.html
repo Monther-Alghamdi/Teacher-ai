@@ -3,9 +3,9 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>المعلم الهولوغرامي الذكي (Three.js)</title>
+    <title>المعلم الهولوغرامي الذكي (Gemini API)</title>
     
-    <!-- مكتبة Three.js الأساسية لتحويل HTML إلى 3D -->
+    <!-- مكتبة Three.js للرسوميات ثلاثية الأبعاد -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
 
     <!-- 🟢 دمج كود CSS (التصميم) -->
@@ -111,11 +111,14 @@
     <!-- 🟢 دمج كود JavaScript (المنطق والتفاعل و Three.js) -->
     <script>
         // =======================================================
-        // 1. إعدادات الربط بالـ API السحابي (Hugging Face)
+        // 1. إعدادات Gemini API 
         // =======================================================
-        // الرابط النهائي: Hugging Face Inference API للنموذج Gemma 2B 
-        const LLAMA_API_URL = 'https://monter1999-teacherai.hf.space/v1/models/google/gemma-2b'; 
+        const API_KEY = "AIzaSyD0rSIlY7GYbKYCDMKJnzsJpowDtFGdcbA"; // 🔴 يجب استبدال هذا بمفتاح Gemini API الخاص بك
+        const GEMINI_API_URL = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-09-2025:generateContent?key=${API_KEY}`;
         
+        // التوجيه الأولي للمعلم (تخصص الفيزياء)
+        const SYSTEM_PROMPT = "Act as an intelligent holographic teacher specializing in High School Physics. Your answers must be concise, positive, supportive, and strictly focused on Physics. Answer in Arabic. Politely decline any non-Physics questions.";
+
         // =======================================================
         // 2. منطق Three.js - العرض والحركة
         // =======================================================
@@ -178,68 +181,69 @@
         window.addEventListener('load', initThreeJS);
 
         // =======================================================
-        // 3. منطق التفاعل والذكاء الاصطناعي
+        // 3. منطق التفاعل والذكاء الاصطناعي (Gemini)
         // =======================================================
         document.getElementById('send-btn').addEventListener('click', handleUserInput);
         document.getElementById('mic-btn').addEventListener('click', handleVoiceInput);
 
         async function sendQuestionToAI(question) {
             if (!question.trim()) return;
+            if (API_KEY === "") {
+                alert("يرجى استبدال 'YOUR_GEMINI_API_KEY' بمفتاحك الخاص أولاً.");
+                return;
+            }
+
 
             const display = document.getElementById('response-display');
             const status = document.getElementById('status-message');
             const userInput = document.getElementById('user-input');
 
             display.innerHTML = `<p>المعلم الهولوغرامي يفكر ويستعد للإجابة...</p>`;
-            status.textContent = 'يتم معالجة السؤال سحابيًا...';
+            status.textContent = 'يتم معالجة السؤال بواسطة Gemini...';
             animateAvatar('thinking');
 
             userInput.disabled = true;
             document.getElementById('send-btn').disabled = true;
 
             try {
-                const response = await fetch(LLAMA_API_URL, {
+                const response = await fetch(GEMINI_API_URL, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     
-                    // تنسيق Hugging Face Inference API
+                    // تنسيق الحمولة لـ Gemini API
                     body: JSON.stringify({
-                        inputs: question,
-                        parameters: {
-                            max_new_tokens: 100,
-                            temperature: 0.7 
-                        }
-                    })
+                        contents: [{ parts: [{ text: question }] }],
+                        systemInstruction: {
+                            parts: [{ text: SYSTEM_PROMPT }]
+                        },
+                    }),
                 });
 
                 if (!response.ok) {
-                    throw new Error(`خطأ في الاتصال بالخادم (الحالة: ${response.status}).`);
+                    throw new Error(`API Error: ${response.status}. Check API Key or usage limits.`);
                 }
 
-                const data = await response.json();
+                const result = await response.json();
                 
-                // استخراج الرد من تنسيق Hugging Face API
-                if (data && data.length > 0 && data[0].generated_text) {
-                    const aiResponseText = data[0].generated_text.trim();
+                const candidate = result.candidates?.[0];
+                if (candidate && candidate.content?.parts?.[0]?.text) {
+                    const aiResponseText = candidate.content.parts[0].text;
                     
-                    // إزالة التوجيه الأولي الذي قد يظهر في الرد
-                    const cleanedText = aiResponseText.replace(/<|system|>.*?<|user|>.*?<|assistant|>/gs, '').trim();
-
-                    display.innerHTML = `<p>${cleanedText}</p>`;
+                    display.innerHTML = `<p>${aiResponseText}</p>`;
                     
-                    readTextAloud(cleanedText, () => {
+                    readTextAloud(aiResponseText, () => {
                         animateAvatar('listening');
                     }); 
                     animateAvatar('talking');
                     status.textContent = 'جاهز للتفاعل التالي.';
 
                 } else {
-                     throw new Error('لم يتم استقبال رد صالح من النموذج. تأكد من سجلات Gradio.');
+                     throw new Error('لم يتم استقبال رد صالح. قد يكون الرد غير آمن أو فارغ.');
                 }
                 
             } catch (error) {
                 display.innerHTML = `<p>حدث خطأ: ${error.message}.</p>`;
-                status.textContent = 'فشل الاتصال أو المعالجة. تأكد من أن مساحة Hugging Face تعمل.';
+                status.textContent = 'فشل الاتصال أو المعالجة.';
                 animateAvatar('listening');
             } finally {
                 userInput.disabled = false;
@@ -270,6 +274,7 @@
         }
 
         function handleVoiceInput() {
+            // استخدام alert() بدلاً من modal مؤقتًا
             alert('تفعيل المايكروفون (قيد التطوير): يتطلب دمج Web Speech API.');
         }
     </script>
