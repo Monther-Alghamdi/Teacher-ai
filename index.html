@@ -3,12 +3,13 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>المعلم الهولوغرامي الذكي (Gemini API)</title>
+    <title>المعلم الهولوغرامي المتقدم</title>
     
-    <!-- مكتبة Three.js للرسوميات ثلاثية الأبعاد -->
+    <!-- مكتبة Three.js الأساسية -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <!-- مكتبة تحميل نماذج GLTF/GLB -->
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/loaders/GLTFLoader.js"></script> 
 
-    <!-- 🟢 دمج كود CSS (التصميم) -->
     <style>
         body {
             background-color: #0d1117; 
@@ -21,20 +22,34 @@
             min-height: 100vh;
             margin: 0;
             text-align: right;
+            /* 🚨 مهم: السماح بالتقاط حركة الماوس/اللمس على كامل الشاشة */
+            user-select: none; 
+        }
+
+        #camera-feed {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+            opacity: 0.1; /* خلفية خفيفة جداً */
+            z-index: -1;
         }
 
         #hologram-container {
             width: 300px;
             height: 300px;
-            border: 3px solid #00ffff;
+            border: 1px solid rgba(0, 255, 255, 0.2); 
             border-radius: 5px;
-            box-shadow: 0 0 20px #00ffff, inset 0 0 10px #00ffff; 
+            box-shadow: 0 0 10px rgba(0, 255, 255, 0.5); 
             display: flex;
             align-items: center;
             justify-content: center;
             margin-bottom: 20px;
             background-color: rgba(0, 255, 255, 0.05); 
             overflow: hidden; 
+            z-index: 10;
         }
 
         #chat-interface {
@@ -44,6 +59,7 @@
             background-color: #161b22;
             border: 1px solid #00ffff;
             border-radius: 8px;
+            z-index: 20;
         }
 
         #response-display {
@@ -89,8 +105,12 @@
             color: #ffcc00; 
         }
     </style>
+
 </head>
 <body>
+    <!-- 🚨 عنصر لعرض تغذية الكاميرا في الخلفية -->
+    <video id="camera-feed" autoplay playsinline></video>
+
     <div id="hologram-container">
         <!-- سيتم إنشاء عنصر <canvas> بواسطة Three.js هنا -->
     </div>
@@ -108,22 +128,27 @@
         <p id="status-message"></p>
     </div>
 
-    <!-- 🟢 دمج كود JavaScript (المنطق والتفاعل و Three.js) -->
     <script>
         // =======================================================
         // 1. إعدادات Gemini API 
         // =======================================================
-        const API_KEY = "AIzaSyD0rSIlY7GYbKYCDMKJnzsJpowDtFGdcbA"; // 🔴 يجب استبدال هذا بمفتاح Gemini API الخاص بك
+        const API_KEY = "AIzaSyAUf6b62PXLjajdhOwROgIfI3aqdvAr6AY"; 
         const GEMINI_API_URL = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-09-2025:generateContent?key=${API_KEY}`;
         
-        // التوجيه الأولي للمعلم (تخصص الفيزياء)
         const SYSTEM_PROMPT = "Act as an intelligent holographic teacher specializing in High School Physics. Your answers must be concise, positive, supportive, and strictly focused on Physics. Answer in Arabic. Politely decline any non-Physics questions.";
 
         // =======================================================
-        // 2. منطق Three.js - العرض والحركة
+        // 2. منطق Three.js والحركة المتقدمة
         // =======================================================
-        let scene, camera, renderer, avatar; 
-        let rotationSpeed = 0.005; 
+        let scene, camera, renderer, avatar, mixer, clock; 
+        let currentAction;
+        let availableAnimations = {}; 
+        let targetRotationY = 0; // 🚨 متغير جديد لدوران الروبوت
+        const TRACKING_SPEED = 0.05; // سرعة تتبع المؤشر/اللمس
+        
+        const MODEL_URL = 'https://cdn.jsdelivr.net/gh/mrdoob/three.js@dev/examples/models/gltf/RobotExpressive/RobotExpressive.glb';
+        
+        clock = new THREE.Clock();
 
         function initThreeJS() {
             const container = document.getElementById('hologram-container');
@@ -131,59 +156,238 @@
             const containerHeight = container.clientHeight;
             const aspectRatio = containerWidth / containerHeight;
             
+            // 1. إعداد المشهد والكاميرا
             scene = new THREE.Scene();
+            scene.background = new THREE.Color(0x0d1117); 
+            
             camera = new THREE.PerspectiveCamera(75, aspectRatio, 0.1, 1000);
-            camera.position.z = 2; 
+            camera.position.set(0, 1.5, 4); 
 
-            renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+            // 2. إعداد المُصيِّر (Renderer)
+            renderer = new THREE.WebGLRenderer({ antialias: true }); 
             renderer.setSize(containerWidth, containerHeight);
             container.appendChild(renderer.domElement);
 
-            const geometry = new THREE.BoxGeometry(1, 1, 1);
-            const material = new THREE.MeshBasicMaterial({
-                color: 0x00ffff, 
-                wireframe: true, 
-                transparent: true,
-                opacity: 0.8 
-            });
-            
-            avatar = new THREE.Mesh(geometry, material);
-            scene.add(avatar);
+            // 3. الإضاءة 
+            scene.add(new THREE.AmbientLight(0xffffff, 1.5)); 
+            const directionalLight = new THREE.DirectionalLight(0xffffff, 1.5); 
+            directionalLight.position.set(5, 10, 7.5);
+            scene.add(directionalLight);
 
-            animate();
+            // 4. تحميل نموذج GLTF
+            const loader = new THREE.GLTFLoader();
+            loader.load(MODEL_URL, function (gltf) {
+                avatar = gltf.scene;
+                avatar.scale.set(1, 1, 1); 
+                avatar.position.y = 0; 
+                
+                scene.add(avatar);
+
+                // 5. إعداد الرسوم المتحركة
+                mixer = new THREE.AnimationMixer(avatar);
+                
+                gltf.animations.forEach((clip) => {
+                    availableAnimations[clip.name] = mixer.clipAction(clip);
+                });
+
+                // تعيين أسماء الحركات الوظيفية
+                availableAnimations['listening'] = availableAnimations['Survey']; 
+                availableAnimations['talking'] = availableAnimations['Wave'];     
+                availableAnimations['thinking'] = availableAnimations['Yes'];     
+
+                // بدء الحركة الافتراضية
+                animateAvatar('listening');
+                animate();
+
+            }, undefined, function (error) {
+                console.error('An error occurred during GLTF loading:', error);
+                document.getElementById('hologram-container').innerHTML = '<p style="color:red; text-align:center;">فشل تحميل نموذج المعلم.</p>';
+            });
+
+            // إضافة قاعدة
+            const planeGeometry = new THREE.PlaneGeometry(3, 3);
+            const planeMaterial = new THREE.MeshBasicMaterial({ color: 0x00ffff, transparent: true, opacity: 0.1 });
+            const plane = new THREE.Mesh(planeGeometry, planeMaterial);
+            plane.rotation.x = -Math.PI / 2;
+            plane.position.y = 0;
+            scene.add(plane);
         }
 
         function animate() {
             requestAnimationFrame(animate);
             
+            const delta = clock.getDelta();
+            if (mixer) mixer.update(delta); 
+
+            // 🚨 منطق تتبع العين/المؤشر
             if (avatar) {
-                avatar.rotation.x += rotationSpeed;
-                avatar.rotation.y += rotationSpeed;
+                 // تحريك الروبوت بسلاسة نحو الدوران المستهدف
+                 avatar.rotation.y += (targetRotationY - avatar.rotation.y) * TRACKING_SPEED; 
             }
 
             renderer.render(scene, camera);
         }
         
+        /**
+         * دالة للتحكم في حالة المجسم الهولوغرامي وتشغيل الحركة
+         */
         function animateAvatar(state) {
-            switch (state) {
-                case 'thinking':
-                    rotationSpeed = 0.05; 
-                    break;
-                case 'talking':
-                    rotationSpeed = 0.01; 
-                    break;
-                case 'listening':
-                    rotationSpeed = 0.005; 
-                    break;
+            if (!mixer || !availableAnimations[state]) return;
+            
+            const newAction = availableAnimations[state];
+
+            if (currentAction !== newAction) {
+                if (currentAction) {
+                    currentAction.fadeOut(0.5); 
+                }
+                newAction.reset().fadeIn(0.5).play(); 
+                currentAction = newAction;
             }
         }
 
-        window.addEventListener('load', initThreeJS);
+        // =======================================================
+        // 4. منطق الموارد (الكاميرا واللمس/الماوس)
+        // =======================================================
+
+        function startCamera() {
+             // 🚨 تشغيل الكاميرا (يطلب إذن المستخدم)
+            if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
+                navigator.mediaDevices.getUserMedia({ video: true })
+                    .then(stream => {
+                        const videoElement = document.getElementById('camera-feed');
+                        videoElement.srcObject = stream;
+                        console.log("Camera stream started.");
+                    })
+                    .catch(err => {
+                        console.warn("Could not access camera: ", err);
+                        // رسالة ودية للمستخدم بدلاً من alert
+                        document.getElementById('status-message').textContent = '⚠️ فشل الوصول للكاميرا. التتبع البصري لن يعمل.';
+                    });
+            }
+        }
+
+        function handlePointerMove(event) {
+            if (!avatar) return;
+            
+            // تحديد إحداثيات المؤشر/اللمس
+            const clientX = event.clientX || event.touches[0].clientX;
+            
+            // حساب الدوران المستهدف: المؤشر في أقصى اليسار (-1)، المؤشر في أقصى اليمين (+1)
+            const normalizedX = (clientX / window.innerWidth) * 2 - 1;
+            
+            // تحويل الإحداثي الطبيعي إلى زاوية دوران (نصف دائرة)
+            // نستخدم -Math.PI / 4 و Math.PI / 4 لتقييد الدوران بزاوية 45 درجة (لطيف)
+            targetRotationY = normalizedX * (Math.PI / 4); 
+        }
+
 
         // =======================================================
-        // 3. منطق التفاعل والذكاء الاصطناعي (Gemini)
+        // 5. ربط الأحداث وتشغيل التطبيق
+        // =======================================================
+        window.addEventListener('load', () => {
+            initThreeJS();
+            startCamera(); // تشغيل الكاميرا عند التحميل
+        });
+        
+        // ربط حركة المؤشر/اللمس بوظيفة تتبع الروبوت
+        window.addEventListener('mousemove', handlePointerMove);
+        window.addEventListener('touchmove', handlePointerMove);
+
+
+        // =======================================================
+        // 6. منطق التفاعل والذكاء الاصطناعي (Gemini)
         // =======================================================
         document.getElementById('send-btn').addEventListener('click', handleUserInput);
+        document.getElementById('mic-btn').addEventListener('click', handleVoiceInput);
+
+        async function sendQuestionToAI(question) {
+            if (!question.trim()) return;
+
+            const display = document.getElementById('response-display');
+            const status = document.getElementById('status-message');
+            const userInput = document.getElementById('user-input');
+
+            display.innerHTML = `<p>المعلم الهولوغرامي يفكر ويستعد للإجابة...</p>`;
+            status.textContent = 'يتم معالجة السؤال بواسطة Gemini...';
+            animateAvatar('thinking'); // 💡 تفعيل حركة التفكير
+
+            userInput.disabled = true;
+            document.getElementById('send-btn').disabled = true;
+
+            try {
+                const response = await fetch(GEMINI_API_URL, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    
+                    body: JSON.stringify({
+                        contents: [{ parts: [{ text: question }] }],
+                        systemInstruction: {
+                            parts: [{ text: SYSTEM_PROMPT }]
+                        },
+                    }),
+                });
+
+                if (!response.ok) {
+                    throw new Error(`API Error: ${response.status}. Check API Key or usage limits.`);
+                }
+
+                const result = await response.json();
+                
+                const candidate = result.candidates?.[0];
+                if (candidate && candidate.content?.parts?.[0]?.text) {
+                    const aiResponseText = candidate.content.parts[0].text;
+                    
+                    display.innerHTML = `<p>${aiResponseText}</p>`;
+                    
+                    readTextAloud(aiResponseText, () => {
+                        animateAvatar('listening'); // العودة للاستماع عند انتهاء الكلام
+                    }); 
+                    animateAvatar('talking'); // بدء حركة الكلام
+                    status.textContent = 'جاهز للتفاعل التالي.';
+
+                } else {
+                     throw new Error('لم يتم استقبال رد صالح. قد يكون الرد غير آمن أو فارغ.');
+                }
+                
+            } catch (error) {
+                display.innerHTML = `<p>حدث خطأ: ${error.message}.</p>`;
+                status.textContent = 'فشل الاتصال أو المعالجة.';
+                animateAvatar('listening');
+            } finally {
+                userInput.disabled = false;
+                document.getElementById('send-btn').disabled = false;
+                userInput.value = '';
+            }
+        }
+
+        function handleUserInput() {
+            const question = document.getElementById('user-input').value;
+            sendQuestionToAI(question);
+        }
+
+        function readTextAloud(text, callback) {
+            if ('speechSynthesis' in window) {
+                const utterance = new SpeechSynthesisUtterance(text);
+                utterance.lang = 'ar-SA'; 
+                
+                utterance.onend = () => {
+                    if (callback) callback();
+                };
+
+                window.speechSynthesis.speak(utterance);
+            } else {
+                console.warn('متصفحك لا يدعم تحويل النص إلى كلام.');
+                if (callback) callback();
+            }
+        }
+
+        function handleVoiceInput() {
+            alert('تفعيل المايكروفون (قيد التطوير): يتطلب دمج Web Speech API.');
+        }
+    </script>
+</body>
+</html>
+
         document.getElementById('mic-btn').addEventListener('click', handleVoiceInput);
 
         async function sendQuestionToAI(question) {
